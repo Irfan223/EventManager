@@ -95,7 +95,6 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
     const workbook = xlsx.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
-    console.log('rows', rows)
 
     // Send messages sequentially with delay
     for (let i = 0; i < rows.length; i++) {
@@ -142,8 +141,6 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
 
 // Global error handler for enhanced debugging
 app.use((err, req, res, next) => {
-  console.error('--- Express Error Handler ---');
-  console.error(err.stack || err);
   res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
 
