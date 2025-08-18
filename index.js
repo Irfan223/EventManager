@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const qrcode = require('qrcode');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
@@ -101,9 +101,14 @@ client.initialize();
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
 app.get('/qr', async (req, res) => {
-    if (!qrCodeString) return res.send('QR code not ready yet.');
-    const dataUrl = await qrcode.toDataURL(qrCodeString);
+  if (!qrCodeString) return res.send('QR code not ready yet.');
+  try {
+    const dataUrl = await qrcode.toDataURL(qrCodeString); // generates a base64 PNG
     res.send(`<img src="${dataUrl}" alt="WhatsApp QR Code"/>`);
+  } catch (err) {
+    console.error('Error generating QR code:', err);
+    res.status(500).send('Error generating QR code');
+  }
 });
 
 // API endpoint to upload Excel and send messages
