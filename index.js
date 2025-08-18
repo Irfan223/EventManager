@@ -70,9 +70,10 @@ if (fs.existsSync(SESSION_FILE_PATH)) {
 }
 
 const client = new Client({ session: sessionData });
-
+let qrCodeString = '';
 client.on('qr', qr => {
   console.log('Scan this QR code:');
+  qrCodeString = qr; // Store QR code string for later use
   qrcode.generate(qr, { small: true });
 });
 
