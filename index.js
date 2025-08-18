@@ -99,6 +99,12 @@ client.initialize();
 // Helper delay function
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
+app.get('/qr', async (req, res) => {
+    if (!qrCodeString) return res.send('QR code not ready yet.');
+    const dataUrl = await qrcode.toDataURL(qrCodeString);
+    res.send(`<img src="${dataUrl}" alt="WhatsApp QR Code"/>`);
+});
+
 // API endpoint to upload Excel and send messages
 app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
   if (!client.info || !client.info.wid) {
