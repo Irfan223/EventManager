@@ -6,8 +6,10 @@ const qrcode = require('qrcode-terminal');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const accountSid = "ACa98209d101169908e2bc878358242f20";
-const authToken = "b1bae37dc89e63c73bd4f934202383f4";
+require('dotenv').config();
+const PORT = process.env.PORT || 8000;
+// const accountSid = "ACa98209d101169908e2bc878358242f20";
+// const authToken = "b1bae37dc89e63c73bd4f934202383f4";
 // const client = require('twilio')(accountSid, authToken);
 
 const app = express();
@@ -57,10 +59,17 @@ const upload = multer({ dest: 'uploads/' });
 //   }
 // });
 
-// Initialize WhatsApp client with persistent auth
-const client = new Client({
-  authStrategy: new LocalAuth()
-});
+// ---------------- Persistent session setup ----------------
+const SESSION_DIR = '/session';
+const SESSION_FILE_PATH = path.join(SESSION_DIR, 'session.json');
+
+let sessionData;
+// Load session if it exists
+if (fs.existsSync(SESSION_FILE_PATH)) {
+  sessionData = require(SESSION_FILE_PATH);
+}
+
+const client = new Client({ session: sessionData });
 
 client.on('qr', qr => {
   console.log('Scan this QR code:');
@@ -71,8 +80,18 @@ client.on('ready', () => {
   console.log('WhatsApp Client is ready!');
 });
 
-client.on('auth_failure', msg => {
-  console.error('Authentication failure:', msg);
+client.on('authenticated', (session) => {
+  console.log('Authenticated!');
+  fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session));
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('AUTH FAILURE', msg);
+  fs.unlinkSync(SESSION_FILE_PATH); // Delete broken session to retry
+});
+
+client.on('disconnected', (reason) => {
+  console.log('Client disconnected', reason);
 });
 
 client.initialize();
@@ -148,6 +167,6 @@ app.use((err, req, res, next) => {
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
 });
-app.listen(8000, () => {
+app.listen(PORT, () => {
   console.log('Server started on port 8000');
 });
