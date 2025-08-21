@@ -2,93 +2,41 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+const qrcodeTerminal = require('qrcode-terminal');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const PORT = process.env.PORT || 8000;
-// const accountSid = "ACa98209d101169908e2bc878358242f20";
-// const authToken = "b1bae37dc89e63c73bd4f934202383f4";
-// const client = require('twilio')(accountSid, authToken);
 
+const PORT = process.env.PORT || 8000;
 const app = express();
-// // Serve static React files
+
 app.use(express.static(path.join(__dirname, 'client/build')));
 app.use(cors());
 
-// API routes here ...
 const upload = multer({ dest: 'uploads/' });
 
-// app.post('/send-bulk-messages', upload.single('file'), async (req, res) => {
-//   try {
-//     const filePath = req.file.path;
-//     const workbook = xlsx.readFile(filePath);
-//     const sheetName = workbook.SheetNames[0];
-//     const sheet = workbook.Sheets[sheetName];
-//     const data = xlsx.utils.sheet_to_json(sheet);
+// WhatsApp client without session
+const client = new Client({
+  authStrategy: new LocalAuth(),
+  puppeteer: { headless: true }
+});
 
-//     // data: [{ Name, Mobile, ImageUrl }, ...]
-//     const results = [];
-//     for (const row of data) {
-//       let rawNumber = row.Mobile || row.mobile || row.Number || row.number || '';
-//       rawNumber = String(rawNumber).replace(/\D/g, ''); // Remove non-digits
-//       let to = rawNumber.startsWith('91') ? `whatsapp:+${rawNumber}` : rawNumber.startsWith('+') ? `whatsapp:${rawNumber}` : `whatsapp:+91${rawNumber}`;
-//       const name = row.Name || row.name || '';
-//       const imageUrl = row.ImageURL || row.ImageUrl || row.imageUrl || row.imageURL || '';
-//       const body = `Hello ${name}, this is your image!`;
-//       const mediaUrl = imageUrl ? [imageUrl] : undefined;
-//       console.log({ to, body, mediaUrl });
-//       try {
-//         const message = await client.messages.create({
-//           from: 'whatsapp:+14155238886',
-//           to,
-//           body,
-//           ...(mediaUrl && { mediaUrl }),
-//         });
-//         results.push({ to, status: 'sent', sid: message.sid });
-//       } catch (err) {
-//         console.error('Twilio error:', err);
-//         results.push({ to, status: 'failed', error: err.message, details: err });
-//       }
-//     }
-//     fs.unlinkSync(filePath); // Clean up uploaded file
-//     res.json({ results });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// ---------------- Persistent session setup ----------------
-const SESSION_DIR = '/session';
-const SESSION_FILE_PATH = path.join(SESSION_DIR, 'session.json');
-
-let sessionData;
-// Load session if it exists
-if (fs.existsSync(SESSION_FILE_PATH)) {
-  sessionData = require(SESSION_FILE_PATH);
-}
-
-const client = new Client({ session: sessionData });
-let qrCodeString = '';
 client.on('qr', qr => {
   console.log('Scan this QR code:');
-  qrCodeString = qr; // Store QR code string for later use
-  qrcode.generate(qr, { small: true });
+  qrcodeTerminal.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
   console.log('WhatsApp Client is ready!');
 });
 
-client.on('authenticated', (session) => {
+client.on('authenticated', () => {
   console.log('Authenticated!');
-  fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session));
 });
 
 client.on('auth_failure', (msg) => {
   console.error('AUTH FAILURE', msg);
-  fs.unlinkSync(SESSION_FILE_PATH); // Delete broken session to retry
 });
 
 client.on('disconnected', (reason) => {
@@ -97,24 +45,12 @@ client.on('disconnected', (reason) => {
 
 client.initialize();
 
-// Helper delay function
 const delay = ms => new Promise(res => setTimeout(res, ms));
-
-app.get('/qr', async (req, res) => {
-  if (!qrCodeString) return res.send('QR code not ready yet.');
-  try {
-    const dataUrl = await qrcode.toDataURL(qrCodeString); // generates a base64 PNG
-    res.send(`<img src="${dataUrl}" alt="WhatsApp QR Code"/>`);
-  } catch (err) {
-    console.error('Error generating QR code:', err);
-    res.status(500).send('Error generating QR code');
-  }
-});
 
 // API endpoint to upload Excel and send messages
 app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
   if (!client.info || !client.info.wid) {
-    return res.status(503).json({ error: 'WhatsApp client not ready yet. Try again later.' });
+    return res.status(503).json({ error: 'WhatsApp client not ready yet. Scan QR and try again.' });
   }
 
   if (!req.file) {
@@ -127,7 +63,6 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
     const sheetName = workbook.SheetNames[0];
     const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-    // Send messages sequentially with delay
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       if (!row.Mobile) {
@@ -142,13 +77,11 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
 
       try {
         if (imageUrl) {
-          // Send image with caption
           const { MessageMedia } = require('whatsapp-web.js');
           const media = await MessageMedia.fromUrl(imageUrl, { unsafeMime: true });
           await client.sendMessage(number, media, { caption: message });
           console.log(`Sent image to ${row.Mobile}`);
         } else {
-          // Send only text message
           await client.sendMessage(number, message);
           console.log(`Sent message to ${row.Mobile}`);
         }
@@ -156,12 +89,10 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
         console.error(`Error sending to ${row.Mobile}:`, err.message);
       }
 
-      await delay(2000); // 2 seconds delay
+      await delay(2000);
     }
 
-    // Delete uploaded file after processing
     fs.unlinkSync(filePath);
-
     res.json({ status: 'Messages sent (or attempted) to all numbers in Excel.' });
   } catch (error) {
     fs.unlinkSync(filePath);
@@ -170,15 +101,14 @@ app.post('/send-whatsapp', upload.single('file'), async (req, res) => {
   }
 });
 
-// Global error handler for enhanced debugging
 app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal Server Error', details: err.message });
 });
 
-// // For any other route, serve React index.html
 app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
 });
+
 app.listen(PORT, () => {
-  console.log('Server started on port 8000');
+  console.log('Server started on port', PORT);
 });
